@@ -1,3 +1,4 @@
+import psycopg2
 from flask import Flask, redirect, url_for, render_template, request
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_principal import Principal, Permission, RoleNeed, UserNeed, Identity, identity_loaded, identity_changed, \
@@ -86,6 +87,70 @@ def admin():
 @user_permission.require(http_exception=403)
 def user():
     return 'Hello, User!'
+
+
+def buscar_filmes():
+    try:
+        connection = psycopg2.connect(
+            user="postgres",
+            password="root",
+            host="localhost",
+            port="5432",
+            database="recomendacao_filmes"
+        )
+
+        cursor = connection.cursor()
+
+        # Execute a query to fetch all movies
+        cursor.execute("SELECT * FROM filmes;")
+        filmes = cursor.fetchall()
+
+        # Convert the list of tuples to a list of dictionaries
+        filmes = [{'ID': f[0], 'Nome': f[1], 'Gênero': f[2], 'Tags': f[3]} for f in filmes]
+
+        return filmes
+
+    except (Exception, psycopg2.Error) as error:
+        print("Error while connecting to PostgreSQL", error)
+    finally:
+        # closing database connection.
+        if connection:
+            cursor.close()
+            connection.close()
+            print("PostgreSQL connection is closed")
+
+
+def calcular_similaridade(filme1, filme2):
+    similaridade = 0
+    similaridade += (filme1['Gênero'] == filme2['Gênero'])
+    similaridade += len(set(filme1['Tags']).intersection(set(filme2['Tags'])))
+    return similaridade
+
+
+def recomendar_filmes(base_filme_nome):
+    filmes = buscar_filmes()
+    base_filme = next((f for f in filmes if f['Nome'] == base_filme_nome), None)
+    recomendacoes = []
+
+    if base_filme is None:
+        return []
+
+    for filme in filmes:
+        if filme['Nome'] != base_filme_nome:
+            similaridade = calcular_similaridade(base_filme, filme)
+            recomendacoes.append((filme['Nome'], similaridade))
+
+    recomendacoes.sort(key=lambda x: x[1], reverse=True)
+
+    return [rec[0] for rec in recomendacoes[:3]]
+
+
+@app.route('/recomendar/<filme_assistido>')
+def recomendar(filme_assistido):
+    filmes_recomendados = recomendar_filmes(filme_assistido)
+    return {
+        "Filmes recomendados baseados em seu interesse por '{}':".format(filme_assistido): filmes_recomendados
+    }
 
 
 if __name__ == '__main__':
